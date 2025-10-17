@@ -70,16 +70,15 @@ def create_and_push_to_github(task_id, code_json):
         env = os.environ.copy()
         env["GITHUB_TOKEN"] = GITHUB_TOKEN
         
-        # --- THIS IS THE FINAL FIX ---
-        # Explicitly log in to GitHub CLI using the token non-interactively.
-        print("   - Authenticating with GitHub CLI...")
-        subprocess.run(["gh", "auth", "login", "--with-token"], input=GITHUB_TOKEN, text=True, check=True, capture_output=True)
-        print("   - Authentication successful.")
+        # --- THIS IS THE FIX ---
+        # The explicit 'gh auth login' command is removed.
+        # 'gh' will automatically use the GITHUB_TOKEN from the 'env' dictionary.
         # ---------------------------
 
-        subprocess.run(["gh", "repo", "delete", repo_name, "--yes"], check=False, env=env)
+        print("   - Authenticating and creating repo...")
+        subprocess.run(["gh", "repo", "delete", repo_name, "--yes"], check=False, env=env, capture_output=True)
         repo_create_command = ["gh", "repo", "create", repo_name, "--public", "--source=.", "--remote=origin"]
-        subprocess.run(repo_create_command, cwd=local_repo_path, check=True, env=env)
+        subprocess.run(repo_create_command, cwd=local_repo_path, check=True, env=env, capture_output=True)
         
         print(f"   - Created GitHub repo: {GITHUB_USERNAME}/{repo_name}")
         subprocess.run(["git", "push", "-u", "origin", "main"], cwd=local_repo_path, check=True)
@@ -89,7 +88,6 @@ def create_and_push_to_github(task_id, code_json):
         return {"repo_url": repo_url, "commit_sha": commit_sha}
     except Exception as e:
         print(f"!!! GitHub BUILD Process Failed: {e} !!!")
-        # Log stdout/stderr from subprocess errors for better debugging
         if hasattr(e, 'stderr') and e.stderr:
             print(f"--- Subprocess Stderr ---\n{e.stderr.decode()}\n-------------------------")
         if hasattr(e, 'stdout') and e.stdout:
