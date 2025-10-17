@@ -65,6 +65,8 @@ def create_and_push_to_github(task_id, code_json):
         subprocess.run(["git", "init"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "branch", "-M", "main"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "add", "."], cwd=local_repo_path, check=True)
+        subprocess.run(["git", "config", "user.name", "Deployment Bot"], cwd=local_repo_path, check=True)
+        subprocess.run(["git", "config", "user.email", "bot@example.com"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=local_repo_path, check=True)
         
         # Set up environment for gh command
