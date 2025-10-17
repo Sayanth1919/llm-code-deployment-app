@@ -73,9 +73,9 @@ def create_and_push_to_github(task_id, code_json):
         env = os.environ.copy()
         env["GITHUB_TOKEN"] = GITHUB_TOKEN
         
-        # --- FIX: Use local gh executable ---
-        subprocess.run(["./gh", "repo", "delete", repo_name, "--yes"], check=False, env=env)
-        repo_create_command = ["./gh", "repo", "create", repo_name, "--public", "--source=.", "--remote=origin"]
+        # Use the system-wide 'gh' installed by the Dockerfile
+        subprocess.run(["gh", "repo", "delete", repo_name, "--yes"], check=False, env=env)
+        repo_create_command = ["gh", "repo", "create", repo_name, "--public", "--source=.", "--remote=origin"]
         subprocess.run(repo_create_command, cwd=local_repo_path, check=True, env=env)
         
         print(f"   - Created GitHub repo: {GITHUB_USERNAME}/{repo_name}")
@@ -92,23 +92,17 @@ def create_and_push_to_github(task_id, code_json):
 def update_and_redeploy_repo(task_id, brief, checks):
     """Clones, updates, and pushes changes to an existing repo."""
     print(f">>> Starting REVISE process for repo: {task_id}")
-    # This function contains the logic for Round 2
     repo_name = task_id
     local_repo_path = os.path.join(os.getcwd(), repo_name)
     repo_url = f"https://github.com/{GITHUB_USERNAME}/{repo_name}"
     try:
-        # Clone existing repo
         if os.path.exists(local_repo_path):
             subprocess.run(f"rmdir /s /q {local_repo_path}", shell=True, check=False)
         subprocess.run(["git", "clone", f"{repo_url}.git", local_repo_path], check=True)
-        
-        # Read current code
         current_code = {}
         for filename in ["index.html", "style.css", "script.js"]:
             with open(os.path.join(local_repo_path, filename), "r", encoding="utf-8") as f:
                 current_code[filename] = f.read()
-        
-        # Create prompt for modification
         update_prompt = f"""
         You are a JSON generation API modifying an existing web app. Respond with only a single, raw, valid JSON object.
         Modification Request: {brief}
@@ -118,8 +112,6 @@ def update_and_redeploy_repo(task_id, brief, checks):
         """
         updated_code_json = generate_code_with_llm(update_prompt)
         if not updated_code_json: raise Exception("LLM failed to generate updated code.")
-        
-        # Process and save new code
         start_index = updated_code_json.find('{')
         end_index = updated_code_json.rfind('}') + 1
         clean_json_string = updated_code_json[start_index:end_index]
@@ -127,12 +119,9 @@ def update_and_redeploy_repo(task_id, brief, checks):
         for filename, content in updated_code.items():
             with open(os.path.join(local_repo_path, filename), "w", encoding="utf-8") as f:
                 f.write(content)
-        
-        # Commit and push changes
         subprocess.run(["git", "add", "."], cwd=local_repo_path, check=True)
         subprocess.run(["git", "commit", "-m", f"Apply updates for Round 2"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "push"], cwd=local_repo_path, check=True)
-        
         commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=local_repo_path).decode().strip()
         pages_url = f"https://{GITHUB_USERNAME}.github.io/{repo_name}/"
         print(f"<<< REVISE process complete.")
@@ -146,8 +135,8 @@ def enable_github_pages(repo_name):
     """Enables GitHub Pages for a repository."""
     print(f">>> Enabling GitHub Pages for {repo_name}...")
     try:
-        # --- FIX: Use local gh executable ---
-        pages_command = ["./gh", "api", "--method", "POST", f"repos/{GITHUB_USERNAME}/{repo_name}/pages", "-f", "build_type=workflow", "-f", "source[branch]=main", "-f", "source[path]=/"]
+        # Use the system-wide 'gh' installed by the Dockerfile
+        pages_command = ["gh", "api", "--method", "POST", f"repos/{GITHUB_USERNAME}/{repo_name}/pages", "-f", "build_type=workflow", "-f", "source[branch]=main", "-f", "source[path]=/"]
         env = os.environ.copy()
         env["GITHUB_TOKEN"] = GITHUB_TOKEN
         subprocess.run(pages_command, check=True, env=env, capture_output=True)
