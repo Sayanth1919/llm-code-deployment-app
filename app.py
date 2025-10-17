@@ -46,7 +46,7 @@ def create_and_push_to_github(task_id, code_json):
         clean_json_string = code_json[start_index:end_index]
         
         if os.path.exists(local_repo_path):
-            # --- THIS IS THE FIX: Use the correct Linux command to delete a folder ---
+            # Use the correct Linux command to delete a folder
             subprocess.run(["rm", "-rf", local_repo_path], check=False)
         
         os.makedirs(local_repo_path)
@@ -63,6 +63,7 @@ def create_and_push_to_github(task_id, code_json):
         subprocess.run(["git", "branch", "-M", "main"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "add", "."], cwd=local_repo_path, check=True)
         
+        # Configure Git's identity for the commit
         subprocess.run(["git", "config", "user.name", "Deployment Bot"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "config", "user.email", "bot@example.com"], cwd=local_repo_path, check=True)
         
@@ -71,6 +72,7 @@ def create_and_push_to_github(task_id, code_json):
         env = os.environ.copy()
         env["GITHUB_TOKEN"] = GITHUB_TOKEN
         
+        # Use the system-wide gh command (no './')
         subprocess.run(["gh", "repo", "delete", repo_name, "--yes"], check=False, env=env)
         repo_create_command = ["gh", "repo", "create", repo_name, "--public", "--source=.", "--remote=origin"]
         subprocess.run(repo_create_command, cwd=local_repo_path, check=True, env=env)
@@ -94,7 +96,6 @@ def update_and_redeploy_repo(task_id, brief, checks):
     repo_url_git = f"https://github.com/{GITHUB_USERNAME}/{repo_name}.git"
     try:
         if os.path.exists(local_repo_path):
-             # --- THIS IS THE FIX: Use the correct Linux command here as well ---
             subprocess.run(["rm", "-rf", local_repo_path], check=False)
         subprocess.run(["git", "clone", repo_url_git, local_repo_path], check=True)
         
@@ -142,6 +143,7 @@ def enable_github_pages(repo_name):
     """Enables GitHub Pages for a repository."""
     print(f">>> Enabling GitHub Pages for {repo_name}...")
     try:
+        # Use the system-wide gh command (no './')
         pages_command = ["gh", "api", "--method", "POST", f"repos/{GITHUB_USERNAME}/{repo_name}/pages", "-f", "build_type=workflow", "-f", "source[branch]=main", "-f", "source[path]=/"]
         env = os.environ.copy()
         env["GITHUB_TOKEN"] = GITHUB_TOKEN
