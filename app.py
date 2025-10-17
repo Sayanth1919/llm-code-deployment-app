@@ -7,12 +7,10 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
 # --- SETUP ---
-# Load environment variables from a .env file for local development
 load_dotenv()
 app = Flask(__name__)
 
 # --- CONSTANTS ---
-# Load secrets and configuration from environment variables
 MY_SECRET = os.getenv("MY_SECRET")
 AIPIPE_API_KEY = os.getenv("AIPIPE_API_KEY")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -41,39 +39,38 @@ def create_and_push_to_github(task_id, code_json):
     local_repo_path = os.path.join(os.getcwd(), repo_name)
     print(f">>> Starting GitHub BUILD process for repo: {repo_name}")
     try:
-        # Clean the JSON string from the LLM response
         start_index = code_json.find('{')
         end_index = code_json.rfind('}') + 1
         if start_index == -1 or end_index == 0:
             raise json.JSONDecodeError("Could not find JSON object in LLM response", code_json, 0)
         clean_json_string = code_json[start_index:end_index]
-
-        # Create local directory and files
+        
         if os.path.exists(local_repo_path):
-            subprocess.run(f"rmdir /s /q {local_repo_path}", shell=True, check=False)
+            # --- THIS IS THE FIX: Use the correct Linux command to delete a folder ---
+            subprocess.run(["rm", "-rf", local_repo_path], check=False)
+        
         os.makedirs(local_repo_path)
         code_data = json.loads(clean_json_string)
         for filename, content in code_data.items():
             with open(os.path.join(local_repo_path, filename), "w", encoding="utf-8") as f:
                 f.write(content)
         with open(os.path.join(local_repo_path, "LICENSE"), "w") as f:
-            f.write("MIT License\n\nCopyright (c) 2025\n...") # Add full MIT license text
+            f.write("MIT License\n\nCopyright (c) 2025\n...")
         with open(os.path.join(local_repo_path, "README.md"), "w") as f:
-            f.write(f"# {repo_name}\n\nThis project was auto-generated.")
+            f.write(f"# {repo_name}\n\nAuto-generated project.")
         
-        # Initialize Git and commit files
         subprocess.run(["git", "init"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "branch", "-M", "main"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "add", "."], cwd=local_repo_path, check=True)
+        
         subprocess.run(["git", "config", "user.name", "Deployment Bot"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "config", "user.email", "bot@example.com"], cwd=local_repo_path, check=True)
+        
         subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=local_repo_path, check=True)
         
-        # Set up environment for gh command
         env = os.environ.copy()
         env["GITHUB_TOKEN"] = GITHUB_TOKEN
         
-        # Use the system-wide 'gh' installed by the Dockerfile
         subprocess.run(["gh", "repo", "delete", repo_name, "--yes"], check=False, env=env)
         repo_create_command = ["gh", "repo", "create", repo_name, "--public", "--source=.", "--remote=origin"]
         subprocess.run(repo_create_command, cwd=local_repo_path, check=True, env=env)
@@ -94,35 +91,45 @@ def update_and_redeploy_repo(task_id, brief, checks):
     print(f">>> Starting REVISE process for repo: {task_id}")
     repo_name = task_id
     local_repo_path = os.path.join(os.getcwd(), repo_name)
-    repo_url = f"https://github.com/{GITHUB_USERNAME}/{repo_name}"
+    repo_url_git = f"https://github.com/{GITHUB_USERNAME}/{repo_name}.git"
     try:
         if os.path.exists(local_repo_path):
-            subprocess.run(f"rmdir /s /q {local_repo_path}", shell=True, check=False)
-        subprocess.run(["git", "clone", f"{repo_url}.git", local_repo_path], check=True)
+             # --- THIS IS THE FIX: Use the correct Linux command here as well ---
+            subprocess.run(["rm", "-rf", local_repo_path], check=False)
+        subprocess.run(["git", "clone", repo_url_git, local_repo_path], check=True)
+        
         current_code = {}
         for filename in ["index.html", "style.css", "script.js"]:
             with open(os.path.join(local_repo_path, filename), "r", encoding="utf-8") as f:
                 current_code[filename] = f.read()
+
         update_prompt = f"""
-        You are a JSON generation API modifying an existing web app. Respond with only a single, raw, valid JSON object.
+        You are a JSON generation API. Modify the provided code based on the request.
         Modification Request: {brief}
         Requirements: {" ".join(checks)}
-        CURRENT Code: {json.dumps(current_code, indent=2)}
-        Return a JSON object with the complete, new code for "index.html", "style.css", and "script.js".
+        CURRENT CODE: {json.dumps(current_code)}
+        Return a JSON object with keys for "index.html", "style.css", and "script.js" containing the complete UPDATED code.
         """
         updated_code_json = generate_code_with_llm(update_prompt)
         if not updated_code_json: raise Exception("LLM failed to generate updated code.")
+
         start_index = updated_code_json.find('{')
         end_index = updated_code_json.rfind('}') + 1
         clean_json_string = updated_code_json[start_index:end_index]
         updated_code = json.loads(clean_json_string)
+
         for filename, content in updated_code.items():
             with open(os.path.join(local_repo_path, filename), "w", encoding="utf-8") as f:
                 f.write(content)
+        
         subprocess.run(["git", "add", "."], cwd=local_repo_path, check=True)
-        subprocess.run(["git", "commit", "-m", f"Apply updates for Round 2"], cwd=local_repo_path, check=True)
+        subprocess.run(["git", "config", "user.name", "Deployment Bot"], cwd=local_repo_path, check=True)
+        subprocess.run(["git", "config", "user.email", "bot@example.com"], cwd=local_repo_path, check=True)
+        subprocess.run(["git", "commit", "-m", "Apply updates from Round 2 brief"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "push"], cwd=local_repo_path, check=True)
+        
         commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=local_repo_path).decode().strip()
+        repo_url = f"https://github.com/{GITHUB_USERNAME}/{repo_name}"
         pages_url = f"https://{GITHUB_USERNAME}.github.io/{repo_name}/"
         print(f"<<< REVISE process complete.")
         return {"repo_url": repo_url, "commit_sha": commit_sha, "pages_url": pages_url}
@@ -135,7 +142,6 @@ def enable_github_pages(repo_name):
     """Enables GitHub Pages for a repository."""
     print(f">>> Enabling GitHub Pages for {repo_name}...")
     try:
-        # Use the system-wide 'gh' installed by the Dockerfile
         pages_command = ["gh", "api", "--method", "POST", f"repos/{GITHUB_USERNAME}/{repo_name}/pages", "-f", "build_type=workflow", "-f", "source[branch]=main", "-f", "source[path]=/"]
         env = os.environ.copy()
         env["GITHUB_TOKEN"] = GITHUB_TOKEN
@@ -181,7 +187,7 @@ def handle_request():
         if data["round"] == 1:
             print("\n--- Received ROUND 1 (Build) Request ---")
             build_prompt = f"""
-            You are a JSON generation API. Respond with only a single, raw, valid JSON object.
+            You are a JSON generation API. Your entire response must be a single, raw, valid JSON object.
             Application Brief: {data['brief']}
             Requirements: {" ".join(data['checks'])}
             Return a JSON object with keys for "index.html", "style.css", and "script.js" containing the complete code.
@@ -200,7 +206,7 @@ def handle_request():
                 return jsonify({"status": "error", "message": "Failed to send notification"}), 500
 
             return jsonify({"status": "success", "message": "Build complete and notification sent!"}), 200
-        else: # Handle Round 2
+        else:
             print("\n--- Received ROUND 2 (Revise) Request ---")
             github_details = update_and_redeploy_repo(data["task"], data["brief"], data["checks"])
             if not github_details: return jsonify({"status": "error", "message": "Failed to update GitHub repo"}), 500
