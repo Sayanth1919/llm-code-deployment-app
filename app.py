@@ -34,7 +34,7 @@ def generate_code_with_llm(prompt):
 
 
 def create_and_push_to_github(task_id, code_json):
-    """Creates a new GitHub repo and pushes the initial code."""
+    """Creates a new GitHub repo and pushes the initial code using token authentication."""
     repo_name = task_id
     local_repo_path = os.path.join(os.getcwd(), repo_name)
     print(f">>> Starting GitHub BUILD process for repo: {repo_name}")
@@ -61,37 +61,48 @@ def create_and_push_to_github(task_id, code_json):
         subprocess.run(["git", "init"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "branch", "-M", "main"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "add", "."], cwd=local_repo_path, check=True)
-        
         subprocess.run(["git", "config", "user.name", "Deployment Bot"], cwd=local_repo_path, check=True)
         subprocess.run(["git", "config", "user.email", "bot@example.com"], cwd=local_repo_path, check=True)
-        
         subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=local_repo_path, check=True)
         
         env = os.environ.copy()
         env["GITHUB_TOKEN"] = GITHUB_TOKEN
         
-        # --- THIS IS THE FIX ---
-        # The explicit 'gh auth login' command is removed.
-        # 'gh' will automatically use the GITHUB_TOKEN from the 'env' dictionary.
-        # ---------------------------
-
-        print("   - Authenticating and creating repo...")
+        # --- THIS IS THE FINAL FIX ---
+        # 1. Create an empty repository on GitHub first.
+        print("   - Creating empty repository on GitHub...")
         subprocess.run(["gh", "repo", "delete", repo_name, "--yes"], check=False, env=env, capture_output=True)
-        repo_create_command = ["gh", "repo", "create", repo_name, "--public", "--source=.", "--remote=origin"]
-        subprocess.run(repo_create_command, cwd=local_repo_path, check=True, env=env, capture_output=True)
+        create_command = ["gh", "repo", "create", repo_name, "--public"]
+        subprocess.run(create_command, check=True, env=env, capture_output=True)
+        print("   - Repository created successfully.")
+
+        # 2. Construct the authenticated remote URL. This is the key.
+        authenticated_url = f"https://{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{repo_name}.git"
         
-        print(f"   - Created GitHub repo: {GITHUB_USERNAME}/{repo_name}")
-        subprocess.run(["git", "push", "-u", "origin", "main"], cwd=local_repo_path, check=True)
+        # 3. Add this authenticated URL as the 'origin' remote.
+        subprocess.run(["git", "remote", "add", "origin", authenticated_url], cwd=local_repo_path, check=True)
+        
+        # 4. Now, push the code. Git will use the token embedded in the URL and will not ask for a password.
+        print("   - Pushing code to repository...")
+        subprocess.run(["git", "push", "-u", "origin", "main"], cwd=local_repo_path, check=True, capture_output=True)
+        print("   - Push successful.")
+        # ---------------------------
+        
         commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=local_repo_path).decode().strip()
         repo_url = f"https://github.com/{GITHUB_USERNAME}/{repo_name}"
         print(f"<<< GitHub BUILD process complete.")
         return {"repo_url": repo_url, "commit_sha": commit_sha}
-    except Exception as e:
-        print(f"!!! GitHub BUILD Process Failed: {e} !!!")
-        if hasattr(e, 'stderr') and e.stderr:
+
+    except subprocess.CalledProcessError as e:
+        print(f"!!! GitHub BUILD Process Failed: A subprocess command failed. !!!")
+        # Log stdout/stderr from the failed command for definitive debugging
+        if e.stderr:
             print(f"--- Subprocess Stderr ---\n{e.stderr.decode()}\n-------------------------")
-        if hasattr(e, 'stdout') and e.stdout:
+        if e.stdout:
             print(f"--- Subprocess Stdout ---\n{e.stdout.decode()}\n-------------------------")
+        return None
+    except Exception as e:
+        print(f"!!! GitHub BUILD Process Failed with a general error: {e} !!!")
         return None
 
 
